@@ -78,7 +78,7 @@ def generate_slide_content(slide_title, style="bullets"):
     )
     return response.choices[0].message.content.strip()
 
-def create_presentation(topic, slide_titles, slide_contents,style="bullets"):
+def create_presentation(topic, slide_titles, slide_contents, style="bullets", font_size=16):
     prs = pptx.Presentation()
     slide_layout = prs.slide_layouts[1]
 
@@ -102,11 +102,11 @@ def create_presentation(topic, slide_titles, slide_contents,style="bullets"):
                     p = text_frame.add_paragraph()
                     p.text = line
                     p.level = 0
-                    p.font.size = SLIDE_FONT_SIZE
+                    p.font.size = Pt(font_size)
         else:  # paragraph style
             p = text_frame.paragraphs[0]
             p.text = slide_content
-            p.font.size = SLIDE_FONT_SIZE
+            p.font.size = Pt(font_size)
         # Customize font size
 
     # Ensure output directory exists
@@ -125,6 +125,7 @@ def main():
     st.subheader("Text to PPT Generation using LLM")
     topic = st.text_input("Enter the topic you want to generate the PPT presentation on:")
     num_slides= st.slider("Select number of slides", min_value=2, max_value=10, value=3,step=1)
+    font_size=st.slider("Select font size:", min_value=10, max_value=40, value=16, step=1)
     style=st.radio("Select content style:",["bullets", "paragraph"])
     generate_button = st.button("Generate Presentation")
 
@@ -138,12 +139,13 @@ def main():
         slide_contents = [generate_slide_content(title) for title in filtered_slide_titles]
 
         st.info("Creating presentation...")
-        create_presentation(topic, filtered_slide_titles, slide_contents, style)
+        create_presentation(topic, filtered_slide_titles, slide_contents, style, font_size)
         st.success("Presentation generated successfully!")
         st.markdown(get_ppt_download_link(topic), unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
 
 
 
