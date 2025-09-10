@@ -9,6 +9,8 @@ from openai import OpenAI
 
 load_dotenv()
 
+st.markdown(
+    """
         <style>
         /* Set dark theme */
         body {
@@ -119,5 +121,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
