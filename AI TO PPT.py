@@ -103,7 +103,7 @@ def main():
     st.title("AI-Powered PPT Maker")
     st.subheader("Text to PPT Generation using LLM")
     topic = st.text_input("Enter the topic you want to generate the PPT presentation on:")
-    num_slides= st.st.slider("Select number of slides", min_value=2, max_value=10, value=3,step=1)
+    num_slides= st.slider("Select number of slides", min_value=2, max_value=10, value=3,step=1)
     generate_button = st.button("Generate Presentation")
 
     if generate_button and topic:
@@ -122,6 +122,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
