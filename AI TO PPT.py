@@ -9,6 +9,33 @@ from openai import OpenAI
 
 load_dotenv()
 
+        <style>
+        /* Set dark theme */
+        body {
+            background-color:rgb(0, 0, 0);
+            color: white;
+            font-family: 'Arial', sans-serif;
+        }
+
+        /* Fixed "Made with ❤️ for Sohan" at the bottom-center */
+        .fixed-bottom {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: white;
+            background-color:rgb(0, 0, 0);
+            padding: 5px 10px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+
+    </style>
+    <div class="fixed-bottom">made with ❤️ from Sohan </div>
+    """,
+    unsafe_allow_html=True
+)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url="https://openrouter.ai/api/v1")
 
 TITLE_FONT_SIZE = Pt(30)
@@ -92,4 +119,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
