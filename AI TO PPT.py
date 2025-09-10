@@ -43,12 +43,12 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url="https://openroute
 TITLE_FONT_SIZE = Pt(30)
 SLIDE_FONT_SIZE = Pt(16)
 
-def generate_slide_titles(topic):
+def generate_slide_titles(topic, num_slides):
     response = client.chat.completions.create(
         model="mistralai/mistral-7b-instruct",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Generate 5 slide titles for a PPT on {topic}."}
+            {"role": "user", "content": f"Generate {num_slides} slide titles for a PPT on {topic}."}
         ],
         max_tokens=100,
         temperature=0.7,
@@ -103,11 +103,12 @@ def main():
     st.title("AI-Powered PPT Maker")
     st.subheader("Text to PPT Generation using LLM")
     topic = st.text_input("Enter the topic you want to generate the PPT presentation on:")
+    num_slides= st.text_slider("Select number of slides", min_value=2, max_value=10, value=3,step=1)
     generate_button = st.button("Generate Presentation")
 
     if generate_button and topic:
         st.info("Generating slide titles...")
-        slide_titles = generate_slide_titles(topic)
+        slide_titles = generate_slide_titles(topic, num_slides)
         filtered_slide_titles = [item.strip() for item in slide_titles if item.strip() != ""]
         st.write("Slide titles generated:", filtered_slide_titles)
 
@@ -121,6 +122,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
