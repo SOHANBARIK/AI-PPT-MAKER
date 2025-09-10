@@ -75,18 +75,23 @@ def create_presentation(topic, slide_titles, slide_contents):
     title_slide = prs.slides.add_slide(prs.slide_layouts[0])
     title_slide.shapes.title.text = topic
 
-    # Add slides
+    # Add slides with bullet points
     for slide_title, slide_content in zip(slide_titles, slide_contents):
         slide = prs.slides.add_slide(slide_layout)
         slide.shapes.title.text = slide_title
-        slide.shapes.placeholders[1].text = slide_content
 
+        # Put bullets in placeholder (content area)
+        text_frame = slide.shapes.placeholders[1].text_frame
+        text_frame.clear()
+ # Put bullets in placeholder (content area)
+        for line in slide_content.split("\n"):
+            line = line.strip("-• \t")
+            if line:  # avoid empty lines
+                p = text_frame.add_paragraph()
+                p.text = line
+                p.level = 0
+                p.font.size = SLIDE_FONT_SIZE
         # Customize font size
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                text_frame = shape.text_frame
-                for paragraph in text_frame.paragraphs:
-                    paragraph.font.size = SLIDE_FONT_SIZE
 
     # Ensure output directory exists
     os.makedirs("generated_ppt", exist_ok=True)
@@ -122,6 +127,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
