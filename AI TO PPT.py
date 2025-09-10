@@ -55,19 +55,30 @@ def generate_slide_titles(topic, num_slides):
     )
     return response.choices[0].message.content.strip().split("\n")
 
-def generate_slide_content(slide_title):
+def generate_slide_content(slide_title, style="bullets"):
     """Generates content for a specific slide title"""
+    if style == "bullets":
+        user_prompt = (
+            f"Generate 3-5 concise bullet points for a PowerPoint slide titled: '{slide_title}'. "
+            f"Keep each bullet point short and clear."
+        )
+    else:  # paragraph
+        user_prompt = (
+            f"Generate a concise paragraph (4–5 sentences) for a PowerPoint slide titled: '{slide_title}'. "
+            f"Keep it clear and professional."
+        )
+
     response = client.chat.completions.create(
         model="mistralai/mistral-7b-instruct",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Generate content for a slide titled: '{slide_title}'."}
+            {"role": "user", "content": user_prompt}
         ],
         temperature=0.7,
     )
     return response.choices[0].message.content.strip()
 
-def create_presentation(topic, slide_titles, slide_contents):
+def create_presentation(topic, slide_titles, slide_contents,style="bullets"):
     prs = pptx.Presentation()
     slide_layout = prs.slide_layouts[1]
 
@@ -84,13 +95,18 @@ def create_presentation(topic, slide_titles, slide_contents):
         text_frame = slide.shapes.placeholders[1].text_frame
         text_frame.clear()
  # Put bullets in placeholder (content area)
-        for line in slide_content.split("\n"):
-            line = line.strip("-• \t")
-            if line:  # avoid empty lines
-                p = text_frame.add_paragraph()
-                p.text = line
-                p.level = 0
-                p.font.size = SLIDE_FONT_SIZE
+        if style == "bullets":
+            for line in slide_content.split("\n"):
+                line = line.strip("-• \t")
+                if line:
+                    p = text_frame.add_paragraph()
+                    p.text = line
+                    p.level = 0
+                    p.font.size = SLIDE_FONT_SIZE
+        else:  # paragraph style
+            p = text_frame.paragraphs[0]
+            p.text = slide_content
+            p.font.size = SLIDE_FONT_SIZE
         # Customize font size
 
     # Ensure output directory exists
@@ -121,12 +137,13 @@ def main():
         slide_contents = [generate_slide_content(title) for title in filtered_slide_titles]
 
         st.info("Creating presentation...")
-        create_presentation(topic, filtered_slide_titles, slide_contents)
+        create_presentation(topic, filtered_slide_titles, slide_contents, style)
         st.success("Presentation generated successfully!")
         st.markdown(get_ppt_download_link(topic), unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
 
 
 
