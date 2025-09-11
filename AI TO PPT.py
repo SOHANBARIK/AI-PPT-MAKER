@@ -199,6 +199,32 @@ def main():
         st.success("🎉 Presentation generated successfully!")
         st.markdown(get_ppt_download_link(ppt_filename), unsafe_allow_html=True)
 
+     # ✅ Custom dark theme + footer
+    st.markdown("""
+        <style>
+            /* Set dark theme */
+            body {
+                background-color: rgb(1, 1, 1);
+                color: white;
+                font-family: 'Arial', sans-serif;
+            }
+            /* Fixed footer */
+            .fixed-bottom {
+                position: fixed;
+                bottom: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 12px;
+                color: white;
+                background-color: rgb(0, 0, 0);
+                padding: 5px 10px;
+                border-radius: 5px;
+                z-index: 1000;
+            }   
+        </style>
+        <div class="fixed-bottom">made with ❤️ from Sohan </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
+
