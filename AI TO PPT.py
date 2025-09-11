@@ -2,18 +2,20 @@ import streamlit as st
 import base64
 import pptx
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-from pptx.util import Pt
+from pptx.util import Pt, Inches
 import os
+import requests
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Load API key
+# Load environment variables
 load_dotenv()
+PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+
+# Initialize OpenAI client (only for text generation)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url="https://openrouter.ai/api/v1")
 
-
 # -------------------- Helper Functions --------------------
-
 def clean_font_selection(selection, label):
     """Handles font family selection and 'Other' input"""
     if selection == "Other":
@@ -23,48 +25,70 @@ def clean_font_selection(selection, label):
             return "Calibri"
         return custom_font
     return selection
-
-
-def generate_slide_titles(slide_title, num_slides=5):
-    """Generates titles/bullets for slides"""
+# ------------------ AI FUNCTIONS ------------------ #
+def generate_slide_titles(topic, num_slides=5):
+    """Generate slide titles based on topic and number of slides."""
     response = client.chat.completions.create(
         model="mistralai/mistral-7b-instruct",
-        messages=[{
-            "role": "system", "content": "You are a helpful assistant."
-        }, {
-            "role": "user",
-            "content": f"Generate {num_slides} rigid titles for a PowerPoint slide titled: '{slide_title}'. "
-                       f"Be very specific and titles must be the important ones."
-        }],
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": f"Generate {num_slides} concise slide titles for a PPT on '{topic}'."}
+        ],
         temperature=0.7,
+        max_tokens=150,
     )
     raw_titles = response.choices[0].message.content.strip().split("\n")
-    return [t.lstrip("0123456789. -") for t in raw_titles if t.strip()][:num_slides]
+    titles = [t.lstrip("0123456789. -") for t in raw_titles if t.strip()]
+    return titles[:num_slides]
 
 
 def generate_slide_content(slide_title, style="bullets"):
-    """Generates content for a given slide"""
+    """Generate content for each slide based on style."""
     if style == "bullets":
-        user_prompt = f"Generate 3-5 concise bullet points for a PowerPoint slide titled: '{slide_title}'."
+        prompt = f"Generate 3-5 concise bullet points for a PowerPoint slide titled: '{slide_title}'."
     else:
-        user_prompt = f"Generate a concise paragraph (4–5 sentences) for a slide titled: '{slide_title}'."
+        prompt = f"Generate a concise paragraph (4–5 sentences) for a slide titled: '{slide_title}'."
 
     response = client.chat.completions.create(
         model="mistralai/mistral-7b-instruct",
         messages=[{"role": "system", "content": "You are a helpful assistant."},
-                  {"role": "user", "content": user_prompt}],
+                  {"role": "user", "content": prompt}],
         temperature=0.7,
+        max_tokens=200,
     )
     return response.choices[0].message.content.strip()
 
 
-def create_presentation(topic, slide_titles, slide_contents, style,
-                        first_page_title_size, global_title_size, content_font_size,
-                        font_title, font_content):
-    """Builds and saves a PowerPoint presentation"""
-    prs = pptx.Presentation()
+def fetch_pexels_image(query, save_path):
+    """Fetch an image from Pexels API based on query."""
+    headers = {"Authorization": PEXELS_API_KEY}
+    params = {"query": query, "per_page": 1, "orientation": "landscape"}
+    url = "https://api.pexels.com/v1/search"
 
-    # ----- Title Slide -----
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        data = response.json()
+        if "photos" in data and len(data["photos"]) > 0:
+            image_url = data["photos"][0]["src"]["large"]
+            img_data = requests.get(image_url).content
+            with open(save_path, "wb") as f:
+                f.write(img_data)
+            return save_path
+        else:
+            print("No Pexels image found for:", query)
+            return None
+    except Exception as e:
+        print("Pexels API error:", e)
+        return None
+
+# ------------------ PPT CREATION ------------------ #
+def create_presentation(topic, slide_titles, slide_contents, style,
+                        first_page_title_size, global_title_size, content_font_size, font_title, font_content, add_images=False):
+    """Create a PPT with generated titles, content, and optional images."""
+    prs = pptx.Presentation()
+    slide_layout = prs.slide_layouts[1]
+
+    # Title Slide
     title_slide = prs.slides.add_slide(prs.slide_layouts[0])
     title_shape = title_slide.shapes.title
     title_shape.text = topic
@@ -78,11 +102,11 @@ def create_presentation(topic, slide_titles, slide_contents, style,
             run.font.bold = True
             run.font.name = font_title
 
-    # ----- Content Slides -----
-    for slide_title, slide_content in zip(slide_titles, slide_contents):
-        slide = prs.slides.add_slide(prs.slide_layouts[1])
+    # Content Slides
+    for idx, (slide_title, slide_content) in enumerate(zip(slide_titles, slide_contents), start=1):
+        slide = prs.slides.add_slide(slide_layout)
 
-        # Title
+        # Slide Title
         title_shape = slide.shapes.title
         title_shape.text = slide_title
         for p in title_shape.text_frame.paragraphs:
@@ -90,49 +114,60 @@ def create_presentation(topic, slide_titles, slide_contents, style,
                 run.font.size = Pt(global_title_size)
                 run.font.name = font_title
 
-        # Content
+        # Content Area
         text_frame = slide.shapes.placeholders[1].text_frame
         text_frame.clear()
+
         if style == "bullets":
             for line in slide_content.split("\n"):
                 line = line.strip("-• \t")
                 if line:
                     p = text_frame.add_paragraph()
                     p.text = line
+                    p.level = 0
                     p.font.size = Pt(content_font_size)
                     p.font.name = font_content
-        else:
+        else:  # Paragraph
             p = text_frame.paragraphs[0]
             p.text = slide_content
             p.font.size = Pt(content_font_size)
-            p.font.name = font_content
 
+        # Optional: Add Pexels image
+        if add_images and PEXELS_API_KEY:
+            os.makedirs("generated_ppt/images", exist_ok=True)
+            image_path = f"generated_ppt/images/slide_{idx}.jpg"
+            if fetch_pexels_image(slide_title, image_path):
+                try:
+                    slide.shapes.add_picture(image_path, Inches(5), Inches(2), Inches(3), Inches(3))
+                except Exception as e:
+                    print("Image placement failed:", e)
+
+    # Save PPT
     os.makedirs("generated_ppt", exist_ok=True)
-    ppt_path = f"generated_ppt/{topic}_presentation.pptx"
-    prs.save(ppt_path)
-    return ppt_path
+    ppt_filename = f"generated_ppt/{topic}_presentation.pptx"
+    prs.save(ppt_filename)
+    return ppt_filename
 
 
-def get_ppt_download_link(file_path, topic):
-    """Generates download link for PPT"""
-    with open(file_path, "rb") as file:
+# ------------------ STREAMLIT APP ------------------ #
+def get_ppt_download_link(ppt_filename):
+    """Generate download link for the PPT."""
+    with open(ppt_filename, "rb") as file:
         ppt_contents = file.read()
     b64_ppt = base64.b64encode(ppt_contents).decode()
-    return f'<a href="data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,{b64_ppt}" download="{topic}_presentation.pptx">Download Presentation</a>'
+    return f'<a href="data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,{b64_ppt}" download="{os.path.basename(ppt_filename)}">Download Presentation</a>'
 
-
-# -------------------- Streamlit App --------------------
 
 def main():
-    st.title("AI-Powered PPT Maker")
-    st.subheader("Text to PPT Generation using LLM")
+    st.title("📊 AI-Powered PPT Maker")
+    st.subheader("Generate PowerPoint Presentations with Pexels Images")
 
-    topic = st.text_input("Enter the topic for the PPT presentation exact as you want to generate:")
-    num_slides = st.slider("Number of slides:", 2, 10, 3, 1)
-    first_page_title_size = st.slider("First page title font size:", 20, 80, 44, 2)
+    # User inputs
+    topic = st.text_input("Enter the topic for your presentation:")
+    num_slides = st.slider("Number of slides", min_value=2, max_value=10, value=3, step=1)
+    first_page_title_size = st.slider("Title font size (pt):", min_value=10, max_value=60, value=32, step=2)
     global_title_size = st.slider("Slide titles font size:", 20, 60, 32, 2)
-    content_font_size = st.slider("Slide content font size:", 10, 40, 16, 2)
-
+    content_font_size = st.slider("Content font size (pt):", min_value=8, max_value=40, value=16, step=1)
     st.write("Font Settings")
     same_font = st.radio("Use the same font for Title & Content?", ["Yes", "No"], index=0)
 
@@ -147,24 +182,22 @@ def main():
         font_content = clean_font_selection(font_content, "Content")
 
     style = st.radio("Content style:", ["bullets", "paragraph"])
-    generate_button = st.button("Generate Presentation")
+    add_images = st.checkbox("Include Pexels images in slides")
+    generate_button = st.button("🚀 Generate Presentation")
 
     if generate_button and topic:
-        st.info("Generating slide titles...")
+        st.info("🔍 Generating slide titles...")
         slide_titles = generate_slide_titles(topic, num_slides)
+        st.write("✅ Slide titles:", slide_titles)
 
-        st.info("Generating slide contents...")
+        st.info("📝 Generating slide contents...")
         slide_contents = [generate_slide_content(title, style) for title in slide_titles]
 
-        st.info("Creating presentation...")
-        ppt_path = create_presentation(
-            topic, slide_titles, slide_contents, style,
-            first_page_title_size, global_title_size, content_font_size,
-            font_title, font_content
-        )
+        st.info("📂 Creating presentation...")
+        ppt_filename = create_presentation(topic, slide_titles, slide_contents, style,first_page_title_size,global_title_size, content_font_size, font_title, font_content, add_images)
 
-        st.success("Presentation generated successfully!")
-        st.markdown(get_ppt_download_link(ppt_path, topic), unsafe_allow_html=True)
+        st.success("🎉 Presentation generated successfully!")
+        st.markdown(get_ppt_download_link(ppt_filename), unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
