@@ -7,6 +7,7 @@ import os
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
+import re  # Added for Regex
 
 # Load environment variables
 load_dotenv()
@@ -25,6 +26,34 @@ def clean_font_selection(selection, label):
             return "Calibri"
         return custom_font
     return selection
+
+def clean_text_and_tags(text):
+    """
+    Removes HTML tags and cleans up whitespace/markdown artifacts.
+    Smartly replaces structural tags with newlines to preserve bullet points.
+    """
+    if not text:
+        return ""
+    
+    # 1. Replace structural closing tags with newlines to preserve formatting
+    # This prevents <li>Item 1</li><li>Item 2</li> from becoming "Item 1Item 2"
+    text = text.replace('</li>', '\n')
+    text = text.replace('</p>', '\n')
+    text = text.replace('<br>', '\n')
+    text = text.replace('<br/>', '\n')
+    text = text.replace('</div>', '\n')
+
+    # 2. Remove all remaining HTML tags (<...>)
+    text = re.sub(r'<[^>]+>', '', text)
+
+    # 3. Remove common Markdown artifacts (bold/italic stars)
+    text = text.replace('**', '').replace('__', '')
+
+    # 4. Collapse multiple newlines into one and strip whitespace
+    text = re.sub(r'\n\s*\n', '\n', text)
+    
+    return text.strip()
+
 # ------------------ AI FUNCTIONS ------------------ #
 def generate_slide_titles(topic, num_slides=5):
     """Generate slide titles based on topic and number of slides."""
@@ -37,7 +66,8 @@ def generate_slide_titles(topic, num_slides=5):
         temperature=0.7,
         max_tokens=150,
     )
-    raw_titles = response.choices[0].message.content.strip().split("\n")
+    raw_content = clean_text_and_tags(response.choices[0].message.content) # Clean response immediately
+    raw_titles = raw_content.split("\n")
     titles = [t.lstrip("0123456789. -") for t in raw_titles if t.strip()]
     return titles[:num_slides]
 
@@ -56,7 +86,8 @@ def generate_slide_content(slide_title, style="bullets"):
         temperature=0.7,
         max_tokens=200,
     )
-    return response.choices[0].message.content.strip()
+    # Clean the content immediately after generation
+    return clean_text_and_tags(response.choices[0].message.content)
 
 
 def fetch_pexels_image(query, save_path):
@@ -75,10 +106,10 @@ def fetch_pexels_image(query, save_path):
                 f.write(img_data)
             return save_path
         else:
-            print("No Pexels image found for:", query)
+            # print("No Pexels image found for:", query)
             return None
     except Exception as e:
-        print("Pexels API error:", e)
+        # print("Pexels API error:", e)
         return None
 
 # ------------------ PPT CREATION ------------------ #
@@ -91,7 +122,8 @@ def create_presentation(topic, slide_titles, slide_contents, style,
     # Title Slide
     title_slide = prs.slides.add_slide(prs.slide_layouts[0])
     title_shape = title_slide.shapes.title
-    title_shape.text = topic
+    # Final safety clean for topic
+    title_shape.text = clean_text_and_tags(topic)
 
     text_frame = title_shape.text_frame
     text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
@@ -108,7 +140,7 @@ def create_presentation(topic, slide_titles, slide_contents, style,
 
         # Slide Title
         title_shape = slide.shapes.title
-        title_shape.text = slide_title
+        title_shape.text = slide_title # Already cleaned in generation step
         for p in title_shape.text_frame.paragraphs:
             for run in p.runs:
                 run.font.size = Pt(global_title_size)
@@ -118,6 +150,8 @@ def create_presentation(topic, slide_titles, slide_contents, style,
         text_frame = slide.shapes.placeholders[1].text_frame
         text_frame.clear()
 
+        # The content is already cleaned by generate_slide_content, 
+        # so we just need to split it for bullets.
         if style == "bullets":
             for line in slide_content.split("\n"):
                 line = line.strip("-• \t")
@@ -140,11 +174,12 @@ def create_presentation(topic, slide_titles, slide_contents, style,
                 try:
                     slide.shapes.add_picture(image_path, Inches(5), Inches(2), Inches(3), Inches(3))
                 except Exception as e:
-                    print("Image placement failed:", e)
+                    pass
+                    # print("Image placement failed:", e)
 
     # Save PPT
     os.makedirs("generated_ppt", exist_ok=True)
-    ppt_filename = f"generated_ppt/{topic}_presentation.pptx"
+    ppt_filename = f"generated_ppt/{topic.replace(' ', '_')}_presentation.pptx"
     prs.save(ppt_filename)
     return ppt_filename
 
@@ -220,11 +255,10 @@ def main():
                 padding: 5px 10px;
                 border-radius: 5px;
                 z-index: 1000;
-            }   
+            }    
         </style>
         <div class="fixed-bottom">made with ❤️ from Sohan </div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
