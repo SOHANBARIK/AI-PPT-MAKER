@@ -29,66 +29,91 @@ def clean_font_selection(selection, label):
 
 def clean_text_and_tags(text):
     """
-    Removes HTML tags and cleans up whitespace/markdown artifacts.
-    Smartly replaces structural tags with newlines to preserve bullet points.
+    Aggressively cleans AI 'robot noise', raw tokens, and conversational filler.
     """
     if not text:
         return ""
     
-    # 1. Replace structural closing tags with newlines to preserve formatting
-    # This prevents <li>Item 1</li><li>Item 2</li> from becoming "Item 1Item 2"
+    # 1. Remove specific AI tokens and artifacts
+    # (<s>, </s>, [OUT], [INST], etc.)
+    text = re.sub(r'<s>|</s>|\[/?\w+\]', '', text)
+    
+    # 2. Remove HTML tags
     text = text.replace('</li>', '\n')
     text = text.replace('</p>', '\n')
     text = text.replace('<br>', '\n')
-    text = text.replace('<br/>', '\n')
-    text = text.replace('</div>', '\n')
-
-    # 2. Remove all remaining HTML tags (<...>)
     text = re.sub(r'<[^>]+>', '', text)
 
-    # 3. Remove common Markdown artifacts (bold/italic stars)
+    # 3. Remove Markdown bold/italic
     text = text.replace('**', '').replace('__', '')
+    
+    # 4. Remove conversational filler lines (e.g., "Here is the content:")
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # If a line starts with "Here is", "Sure", "Certainly", skip it
+        lower_line = line.lower().strip()
+        if lower_line.startswith(("here is", "sure", "certainly", "below are", "i have generated")):
+            continue
+        cleaned_lines.append(line)
+    
+    text = "\n".join(cleaned_lines)
 
-    # 4. Collapse multiple newlines into one and strip whitespace
+    # 5. Collapse extra newlines
     text = re.sub(r'\n\s*\n', '\n', text)
     
     return text.strip()
 
 # ------------------ AI FUNCTIONS ------------------ #
 def generate_slide_titles(topic, num_slides=5):
-    """Generate slide titles based on topic and number of slides."""
+    """Generate slide titles with strict instruction to avoid conversational filler."""
+    
+    system_prompt = "You are a data generator. Return ONLY the slide titles. No introductions. No numbering. No 'Here are the titles'."
+    user_prompt = f"Generate exactly {num_slides} short, professional slide titles for a presentation on '{topic}'."
+
     response = client.chat.completions.create(
         model="mistralai/mistral-7b-instruct",
         messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Generate {num_slides} concise slide titles for a PPT on '{topic}'."}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
         ],
-        temperature=0.7,
-        max_tokens=150,
-    )
-    raw_content = clean_text_and_tags(response.choices[0].message.content) # Clean response immediately
-    raw_titles = raw_content.split("\n")
-    titles = [t.lstrip("0123456789. -") for t in raw_titles if t.strip()]
-    return titles[:num_slides]
-
-
-def generate_slide_content(slide_title, style="bullets"):
-    """Generate content for each slide based on style."""
-    if style == "bullets":
-        prompt = f"Generate 3-5 concise bullet points for a PowerPoint slide titled: '{slide_title}'."
-    else:
-        prompt = f"Generate a concise paragraph (4–5 sentences) for a slide titled: '{slide_title}'."
-
-    response = client.chat.completions.create(
-        model="mistralai/mistral-7b-instruct",
-        messages=[{"role": "system", "content": "You are a helpful assistant."},
-                  {"role": "user", "content": prompt}],
         temperature=0.7,
         max_tokens=200,
     )
-    # Clean the content immediately after generation
-    return clean_text_and_tags(response.choices[0].message.content)
+    
+    # Clean output immediately
+    raw_content = clean_text_and_tags(response.choices[0].message.content)
+    
+    # Split by newlines and filter out empty strings or artifacts
+    raw_titles = raw_content.split("\n")
+    titles = []
+    for t in raw_titles:
+        # Remove leading numbers (1. Intro -> Intro)
+        clean_t = re.sub(r'^\d+\.?\s*', '', t.strip())
+        if clean_t and len(clean_t) > 2: # Ignore 1-2 char artifacts
+            titles.append(clean_t)
+            
+    return titles[:num_slides]
 
+def generate_slide_content(slide_title, style="bullets"):
+    """Generate content with strict 'No Conversational Filler' rules."""
+    
+    if style == "bullets":
+        user_prompt = f"Write 3-5 concise bullet points for a slide titled '{slide_title}'. Return ONLY the bullet points. Do not say 'Here are the points'."
+    else:
+        user_prompt = f"Write a short paragraph (4 sentences) for a slide titled '{slide_title}'. Return ONLY the paragraph."
+
+    response = client.chat.completions.create(
+        model="mistralai/mistral-7b-instruct",
+        messages=[
+            {"role": "system", "content": "You are a strict content generator. Output ONLY the requested content. No conversational filler text."},
+            {"role": "user", "content": user_prompt}
+        ],
+        temperature=0.7,
+        max_tokens=300,
+    )
+    
+    return clean_text_and_tags(response.choices[0].message.content)
 
 def fetch_pexels_image(query, save_path):
     """Fetch an image from Pexels API based on query."""
