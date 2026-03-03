@@ -7,14 +7,24 @@ import os
 import requests
 from dotenv import load_dotenv
 from openai import OpenAI
-import re  # Added for Regex
+import re  
 
-# Load environment variables
+# Load environment variables for local development
 load_dotenv()
-PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
 
-# Initialize OpenAI client (only for text generation)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), base_url="https://openrouter.ai/api/v1")
+# Safely fetch keys from Streamlit Secrets (Cloud) OR Environment Variables (Local)
+try:
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+    PEXELS_API_KEY = st.secrets["PEXELS_API_KEY"]
+except (FileNotFoundError, KeyError):
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    PEXELS_API_KEY = os.getenv("PEXELS_API_KEY")
+
+# Initialize OpenAI client pointing to Groq's API
+client = OpenAI(
+    api_key=GROQ_API_KEY, 
+    base_url="https://api.groq.com/openai/v1"
+)
 
 # -------------------- Helper Functions --------------------
 def clean_font_selection(selection, label):
@@ -28,92 +38,78 @@ def clean_font_selection(selection, label):
     return selection
 
 def clean_text_and_tags(text):
-    """
-    Aggressively cleans AI 'robot noise', raw tokens, and conversational filler.
-    """
+    """Aggressively cleans AI 'robot noise', raw tokens, and conversational filler."""
     if not text:
         return ""
     
-    # 1. Remove specific AI tokens and artifacts
-    # (<s>, </s>, [OUT], [INST], etc.)
     text = re.sub(r'<s>|</s>|\[/?\w+\]', '', text)
-    
-    # 2. Remove HTML tags
-    text = text.replace('</li>', '\n')
-    text = text.replace('</p>', '\n')
-    text = text.replace('<br>', '\n')
+    text = text.replace('</li>', '\n').replace('</p>', '\n').replace('<br>', '\n')
     text = re.sub(r'<[^>]+>', '', text)
-
-    # 3. Remove Markdown bold/italic
     text = text.replace('**', '').replace('__', '')
     
-    # 4. Remove conversational filler lines (e.g., "Here is the content:")
     lines = text.split('\n')
     cleaned_lines = []
     for line in lines:
-        # If a line starts with "Here is", "Sure", "Certainly", skip it
         lower_line = line.lower().strip()
         if lower_line.startswith(("here is", "sure", "certainly", "below are", "i have generated")):
             continue
         cleaned_lines.append(line)
     
     text = "\n".join(cleaned_lines)
-
-    # 5. Collapse extra newlines
     text = re.sub(r'\n\s*\n', '\n', text)
-    
     return text.strip()
 
 # ------------------ AI FUNCTIONS ------------------ #
 def generate_slide_titles(topic, num_slides=5):
     """Generate slide titles with strict instruction to avoid conversational filler."""
-    
     system_prompt = "You are a data generator. Return ONLY the slide titles. No introductions. No numbering. No 'Here are the titles'."
     user_prompt = f"Generate exactly {num_slides} short, professional slide titles for a presentation on '{topic}'."
 
-    response = client.chat.completions.create(
-        model="mistralai/mistral-7b-instruct",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.7,
-        max_tokens=200,
-    )
-    
-    # Clean output immediately
-    raw_content = clean_text_and_tags(response.choices[0].message.content)
-    
-    # Split by newlines and filter out empty strings or artifacts
-    raw_titles = raw_content.split("\n")
-    titles = []
-    for t in raw_titles:
-        # Remove leading numbers (1. Intro -> Intro)
-        clean_t = re.sub(r'^\d+\.?\s*', '', t.strip())
-        if clean_t and len(clean_t) > 2: # Ignore 1-2 char artifacts
-            titles.append(clean_t)
-            
-    return titles[:num_slides]
+    try:
+        response = client.chat.completions.create(
+            model="llama3-8b-8192",  # Updated to a fast Groq model
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=200,
+        )
+        
+        raw_content = clean_text_and_tags(response.choices[0].message.content)
+        raw_titles = raw_content.split("\n")
+        titles = []
+        for t in raw_titles:
+            clean_t = re.sub(r'^\d+\.?\s*', '', t.strip())
+            if clean_t and len(clean_t) > 2: 
+                titles.append(clean_t)
+                
+        return titles[:num_slides]
+    except Exception as e:
+        st.error(f"Groq API Error generating titles: {e}")
+        return []
 
 def generate_slide_content(slide_title, style="bullets"):
     """Generate content with strict 'No Conversational Filler' rules."""
-    
     if style == "bullets":
         user_prompt = f"Write 3-5 concise bullet points for a slide titled '{slide_title}'. Return ONLY the bullet points. Do not say 'Here are the points'."
     else:
         user_prompt = f"Write a short paragraph (4 sentences) for a slide titled '{slide_title}'. Return ONLY the paragraph."
 
-    response = client.chat.completions.create(
-        model="mistralai/mistral-7b-instruct",
-        messages=[
-            {"role": "system", "content": "You are a strict content generator. Output ONLY the requested content. No conversational filler text."},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.7,
-        max_tokens=300,
-    )
-    
-    return clean_text_and_tags(response.choices[0].message.content)
+    try:
+        response = client.chat.completions.create(
+            model="llama3-8b-8192",  # Updated to a fast Groq model
+            messages=[
+                {"role": "system", "content": "You are a strict content generator. Output ONLY the requested content. No conversational filler text."},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=300,
+        )
+        return clean_text_and_tags(response.choices[0].message.content)
+    except Exception as e:
+        st.error(f"Groq API Error generating content: {e}")
+        return ""
 
 def fetch_pexels_image(query, save_path):
     """Fetch an image from Pexels API based on query."""
@@ -131,10 +127,8 @@ def fetch_pexels_image(query, save_path):
                 f.write(img_data)
             return save_path
         else:
-            # print("No Pexels image found for:", query)
             return None
     except Exception as e:
-        # print("Pexels API error:", e)
         return None
 
 # ------------------ PPT CREATION ------------------ #
@@ -147,7 +141,6 @@ def create_presentation(topic, slide_titles, slide_contents, style,
     # Title Slide
     title_slide = prs.slides.add_slide(prs.slide_layouts[0])
     title_shape = title_slide.shapes.title
-    # Final safety clean for topic
     title_shape.text = clean_text_and_tags(topic)
 
     text_frame = title_shape.text_frame
@@ -165,7 +158,7 @@ def create_presentation(topic, slide_titles, slide_contents, style,
 
         # Slide Title
         title_shape = slide.shapes.title
-        title_shape.text = slide_title # Already cleaned in generation step
+        title_shape.text = slide_title
         for p in title_shape.text_frame.paragraphs:
             for run in p.runs:
                 run.font.size = Pt(global_title_size)
@@ -175,8 +168,6 @@ def create_presentation(topic, slide_titles, slide_contents, style,
         text_frame = slide.shapes.placeholders[1].text_frame
         text_frame.clear()
 
-        # The content is already cleaned by generate_slide_content, 
-        # so we just need to split it for bullets.
         if style == "bullets":
             for line in slide_content.split("\n"):
                 line = line.strip("-• \t")
@@ -186,7 +177,7 @@ def create_presentation(topic, slide_titles, slide_contents, style,
                     p.level = 0
                     p.font.size = Pt(content_font_size)
                     p.font.name = font_content
-        else:  # Paragraph
+        else:  
             p = text_frame.paragraphs[0]
             p.text = slide_content
             p.font.size = Pt(content_font_size)
@@ -198,16 +189,14 @@ def create_presentation(topic, slide_titles, slide_contents, style,
             if fetch_pexels_image(slide_title, image_path):
                 try:
                     slide.shapes.add_picture(image_path, Inches(5), Inches(2), Inches(3), Inches(3))
-                except Exception as e:
+                except Exception:
                     pass
-                    # print("Image placement failed:", e)
 
     # Save PPT
     os.makedirs("generated_ppt", exist_ok=True)
     ppt_filename = f"generated_ppt/{topic.replace(' ', '_')}_presentation.pptx"
     prs.save(ppt_filename)
     return ppt_filename
-
 
 # ------------------ STREAMLIT APP ------------------ #
 def get_ppt_download_link(ppt_filename):
@@ -217,17 +206,16 @@ def get_ppt_download_link(ppt_filename):
     b64_ppt = base64.b64encode(ppt_contents).decode()
     return f'<a href="data:application/vnd.openxmlformats-officedocument.presentationml.presentation;base64,{b64_ppt}" download="{os.path.basename(ppt_filename)}">Download Presentation</a>'
 
-
 def main():
     st.title("📊 AI-Powered PPT Maker")
     st.subheader("Generate PowerPoint Presentations with Pexels Images")
 
-    # User inputs
     topic = st.text_input("Enter the topic for your presentation:")
     num_slides = st.slider("Number of slides", min_value=2, max_value=10, value=3, step=1)
     first_page_title_size = st.slider("Title font size (pt):", min_value=10, max_value=60, value=32, step=2)
     global_title_size = st.slider("Slide titles font size:", 20, 60, 32, 2)
     content_font_size = st.slider("Content font size (pt):", min_value=8, max_value=40, value=16, step=1)
+    
     st.write("Font Settings")
     same_font = st.radio("Use the same font for Title & Content?", ["Yes", "No"], index=0)
 
@@ -237,7 +225,6 @@ def main():
     else:
         font_title = st.selectbox("Font family for Titles:", ["Calibri", "Arial", "Times New Roman", "Verdana", "Tahoma", "Other"])
         font_title = clean_font_selection(font_title, "Titles")
-
         font_content = st.selectbox("Font family for Content:", ["Calibri", "Arial", "Times New Roman", "Verdana", "Tahoma", "Other"])
         font_content = clean_font_selection(font_content, "Content")
 
@@ -248,6 +235,12 @@ def main():
     if generate_button and topic:
         st.info("🔍 Generating slide titles...")
         slide_titles = generate_slide_titles(topic, num_slides)
+        
+        # Check if titles generated successfully
+        if not slide_titles:
+            st.error("Failed to generate slide titles. Check API Key or connection.")
+            return
+            
         st.write("✅ Slide titles:", slide_titles)
 
         st.info("📝 Generating slide contents...")
@@ -259,16 +252,13 @@ def main():
         st.success("🎉 Presentation generated successfully!")
         st.markdown(get_ppt_download_link(ppt_filename), unsafe_allow_html=True)
 
-     # ✅ Custom dark theme + footer
     st.markdown("""
         <style>
-            /* Set dark theme */
             body {
                 background-color: rgb(1, 1, 1);
                 color: white;
                 font-family: 'Arial', sans-serif;
             }
-            /* Fixed footer */
             .fixed-bottom {
                 position: fixed;
                 bottom: 10px;
