@@ -98,7 +98,7 @@ def generate_slide_content(slide_title, style="bullets"):
 
     try:
         response = client.chat.completions.create(
-            model="llama3-8b-8192",  # Updated to a fast Groq model
+            model="llama-3.3-70b-versatile",  # Updated to a fast Groq model
             messages=[
                 {"role": "system", "content": "You are a strict content generator. Output ONLY the requested content. No conversational filler text."},
                 {"role": "user", "content": user_prompt}
@@ -277,3 +277,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
